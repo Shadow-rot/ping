@@ -53,3 +53,4 @@ async def _ping(_, m: types.Message):
         ),
         reply_markup=buttons.ping_markup(m.lang["support"]),
     )
+print(repr(m.lang["ping_pong"]))
