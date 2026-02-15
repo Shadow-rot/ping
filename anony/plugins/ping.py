@@ -9,6 +9,8 @@ import psutil
 from pyrogram import filters, types
 from anony import app, anon, boot, config, lang
 from anony.helpers import buttons
+from pyrogram import enums
+
 
 
 @app.on_message(filters.command(["alive", "ping"]) & ~app.bl_users)
@@ -30,7 +32,7 @@ async def _ping(_, m: types.Message):
             psutil.disk_usage("/").percent,
             await anon.ping(),
         ),
-        parse_mode="html"
+        parse_mode=enums.ParseMode.HTML  # ✅ Correct
     ),
     reply_markup=buttons.ping_markup(m.lang["support"]),
 )
