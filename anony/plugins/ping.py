@@ -20,16 +20,18 @@ async def _ping(_, m: types.Message):
     uptime = get_time(int(time.time() - boot))
     latency = round((time.time() - start) * 1000, 2)
     await sent.edit_media(
-        media=types.InputMediaPhoto(
-            media=config.PING_IMG,
-            caption=m.lang["ping_pong"].format(
-                latency,
-                uptime,
-                psutil.cpu_percent(interval=0),
-                psutil.virtual_memory().percent,
-                psutil.disk_usage("/").percent,
-                await anon.ping(),
-            )
+    media=types.InputMediaPhoto(
+        media=config.PING_IMG,
+        caption=m.lang["ping_pong"].format(
+            latency,
+            uptime,
+            psutil.cpu_percent(interval=0),
+            psutil.virtual_memory().percent,
+            psutil.disk_usage("/").percent,
+            await anon.ping(),
         ),
-        reply_markup=buttons.ping_markup(m.lang["support"]),
-    )
+        parse_mode="html"
+    ),
+    reply_markup=buttons.ping_markup(m.lang["support"]),
+)
+
