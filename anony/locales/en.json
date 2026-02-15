@@ -63,7 +63,7 @@
     "logger_usage": "<b>Usage:</b>\n\n/{0} [on|off]",
     "not_playing": "The bot isn't streaming in the video chat.",
     "pinging": "Pinging… please wait…",
-    "ping_pong": "<tg-emoji emoji-id=\"5375125990118793401\">😊</tg-emoji> <u><b>Pong!</b></u>\n\n<b>Latency:</b> <code>{0}ms</code>\n\n<b>Uptime:</b> {1}\n<b>CPU:</b> <code>{2}%</code>\n<b>RAM:</b> <code>{3}%</code>\n<b>Disk:</b> <code>{4}%</code>\n<b>PyTgCalls Latency:</b> <code>{5}ms</code>",
+    "ping_pong": "<tg-emoji emoji-id=\"5375125990118793401\">😊</tg-emoji> <u><b>Pong!</b></u>\n\n<b>Latency:</b> <code>{0}ms</code>",
 
 "play_admin": "<tg-emoji emoji-id=\"5375125990118793401\">😊</tg-emoji> <u><b>Admin only play</b></u>\n\nOnly admins are allowed to play in this chat.",
 
