@@ -316,19 +316,29 @@ class TgCall:
         """
         Register event handlers on a single PyTgCalls client instance.
 
+        pytgcalls v2.x type changes applied here:
+        ──────────────────────────────────────────
+        OLD (broken)               NEW (v2.x)
+        ─────────────────────────────────────────
+        types.MuteStream       →   types.MutedStream
+        types.UnMuteStream     →   types.UnMutedStream
+        types.StreamAudioEnded →   types.StreamEnded  (with .stream_type check)
+        types.StreamVideoEnded →   types.StreamEnded  (with .stream_type check)
+
         Handles:
-        • ``StreamEnded`` (AUDIO or VIDEO) → advance the queue.
-        • ``ChatUpdate``  (kicked / left / VC closed) → clean up state.
-        • ``MuteStream``  (server-side mute) → log for awareness.
+        • StreamEnded  (AUDIO or VIDEO) → advance the queue.
+        • ChatUpdate   (kicked / left / VC closed) → clean up state.
+        • MutedStream  (server-side mute) → log for awareness.
+        • UnMutedStream (server-side unmute) → log for awareness.
         """
 
         @client.on_update()
         async def update_handler(_, update: types.Update) -> None:
+
             # ── Stream finished ─────────────────────────────────────────
+            # pytgcalls v2.x: StreamAudioEnded + StreamVideoEnded were
+            # merged into a single StreamEnded type with a stream_type field.
             if isinstance(update, types.StreamEnded):
-                # Trigger next track on either audio OR video stream end.
-                # Using asyncio.create_task avoids blocking the event loop
-                # while play_next (which can download a file) runs.
                 if update.stream_type in (
                     types.StreamEnded.Type.AUDIO,
                     types.StreamEnded.Type.VIDEO,
@@ -338,7 +348,8 @@ class TgCall:
                         name=f"play_next:{update.chat_id}",
                     )
 
-            # ── Chat/call state changes ─────────────────────────────────
+            # ── Chat / call state changes ───────────────────────────────
+            # ChatUpdate.Status values are unchanged in v2.x.
             elif isinstance(update, types.ChatUpdate):
                 terminal_statuses = {
                     types.ChatUpdate.Status.KICKED,
@@ -351,12 +362,20 @@ class TgCall:
                         name=f"stop:{update.chat_id}",
                     )
 
-            # ── Server-side mute (logged but not acted upon) ────────────
-            elif isinstance(update, types.MuteStream):
+            # ── Server-side mute ────────────────────────────────────────
+            # FIX: types.MuteStream → types.MutedStream  (v2.x rename)
+            elif isinstance(update, types.MutedStream):
                 logger.debug(
-                    "MuteStream update for chat %s: muted=%s",
+                    "MutedStream update for chat %s",
                     update.chat_id,
-                    update.muted,
+                )
+
+            # ── Server-side unmute ──────────────────────────────────────
+            # FIX: types.UnMuteStream → types.UnMutedStream  (v2.x rename)
+            elif isinstance(update, types.UnMutedStream):
+                logger.debug(
+                    "UnMutedStream update for chat %s",
+                    update.chat_id,
                 )
 
     # ------------------------------------------------------------------ #
@@ -377,7 +396,10 @@ class TgCall:
             await client.start()
             self.clients.append(client)
             await self.decorators(client)
-            logger.info("PyTgCalls client started for userbot %s.", ub.me.id if ub.me else "?")
+            logger.info(
+                "PyTgCalls client started for userbot %s.",
+                ub.me.id if ub.me else "?",
+            )
 
         logger.info(
             "TgCall pool ready: %d client(s) active.", len(self.clients)
