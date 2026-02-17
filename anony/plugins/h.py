@@ -2,14 +2,14 @@ import asyncio
 from pyrogram import filters
 from pyrogram.errors import FloodWait
 from anony import app
-from anony.core.userbot import userbot
+from anony.core.userbot import ub
 
 
 @app.on_message(filters.command("lv", prefixes=["."]))
 async def leave_all(_, message):
     left = 0
 
-    for assistant in userbot.clients:
+    for assistant in ub.clients:
         async for dialog in assistant.get_dialogs():
             try:
                 await assistant.leave_chat(dialog.chat.id)
