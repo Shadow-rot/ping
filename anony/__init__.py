@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 # This file is part of AnonXMusic
 
-import asyncio
+
 import time
 import logging
 from logging.handlers import RotatingFileHandler
@@ -74,10 +74,3 @@ async def stop() -> None:
     await db.close()
 
     logger.info("Stopped.\n")
-    import asyncio
-
-async def start_userbot():
-    await userbot.boot()
-
-tasks.append(asyncio.create_task(start_userbot()))
-
