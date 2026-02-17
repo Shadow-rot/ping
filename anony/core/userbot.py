@@ -31,7 +31,6 @@ class Userbot(Client):
                     session_string=session,
                 ),
             )
-            ub = Userbot()
 
     async def boot_client(self, num: int, ub: Client):
         """
@@ -87,3 +86,5 @@ class Userbot(Client):
         if config.SESSION3:
             await self.three.stop()
         logger.info("Assistants stopped.")
+
+ub = Userbot()
