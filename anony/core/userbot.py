@@ -31,6 +31,7 @@ class Userbot(Client):
                     session_string=session,
                 ),
             )
+            ub = Userbot()
 
     async def boot_client(self, num: int, ub: Client):
         """
