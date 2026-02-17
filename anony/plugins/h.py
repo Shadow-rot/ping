@@ -8,7 +8,7 @@ from anony.core.userbot import ub
 @app.on_message(filters.command("lv", prefixes=["."]))
 async def leave_all(_, message):
     total_left = 0
-
+print(ub.clients)
     for assistant in ub.clients:
         async for dialog in assistant.get_dialogs():
             try:
