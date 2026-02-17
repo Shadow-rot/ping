@@ -24,6 +24,18 @@ from anony import app, config, db, lang, logger, queue, userbot, yt
 from anony.helpers import Media, Track, buttons, thumb
 
 
+# ── v2.2.11 type inventory (confirmed via dir(pytgcalls.types)) ──────────────
+#
+#   AVAILABLE:  AudioQuality, ChatUpdate, GroupCallConfig, MediaStream,
+#               StreamEnded, UpdatedGroupCallParticipant, VideoQuality, Update
+#
+#   REMOVED:    MuteStream, UnMuteStream, MutedStream, UnMutedStream
+#               (these do not exist in py-tgcalls >= 2.x)
+#
+#   Mute events are now surfaced via UpdatedGroupCallParticipant.muted
+# ────────────────────────────────────────────────────────────────────────────
+
+
 class TgCall:
     """
     High-level voice/video-chat manager for AnonXMusic.
@@ -44,7 +56,6 @@ class TgCall:
 
     def __init__(self) -> None:
         self.clients: list[PyTgCalls] = []
-        # Per-chat mutex to prevent concurrent play/stop races.
         self._locks: dict[int, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ #
@@ -62,9 +73,9 @@ class TgCall:
         """
         Build a ``MediaStream`` from a Media/Track object.
 
-        Audio is always REQUIRED.  Video is AUTO_DETECT when the track has
-        a video stream, and IGNORE otherwise — this prevents PyTgCalls from
-        crashing on audio-only files.
+        Audio is always REQUIRED. Video is AUTO_DETECT when the track has
+        a video stream, IGNORE otherwise — prevents PyTgCalls from crashing
+        on audio-only files.
         """
         return types.MediaStream(
             media_path=media.file_path,
@@ -76,8 +87,6 @@ class TgCall:
                 if media.video
                 else types.MediaStream.Flags.IGNORE
             ),
-            # Seek is applied via an ffmpeg -ss pre-input filter; skip if ≤ 1 s
-            # to avoid a tiny but noisy seek on fresh plays.
             ffmpeg_parameters=f"-ss {seek_time}" if seek_time > 1 else None,
         )
 
@@ -142,9 +151,7 @@ class TgCall:
             client = await db.get_assistant(chat_id)
             queue.clear(chat_id)
             await db.remove_call(chat_id)
-            # Clean up the per-chat lock since no active call remains.
             self._locks.pop(chat_id, None)
-
             try:
                 await client.leave_call(chat_id, close=False)
             except Exception:
@@ -230,7 +237,6 @@ class TgCall:
                 media.user,
             )
             keyboard = buttons.controls(chat_id)
-
             sent = await _send_now_playing(chat_id, message, text, keyboard, _thumb)
             if sent:
                 media.message_id = sent.id
@@ -253,13 +259,12 @@ class TgCall:
         Advance to the next track in the queue.
 
         Steps:
-        1. Ask the queue for the next item (this also removes the current one).
+        1. Ask the queue for the next item (removes the current one).
         2. Delete the current now-playing card (best-effort).
         3. If the queue is empty, stop the call.
         4. Otherwise, ensure the file is downloaded, then stream it.
         """
         current = queue.get_current(chat_id)
-        # Delete the now-playing message for the track we're moving past.
         if current and current.message_id:
             await self._safe_delete(chat_id, current.message_id)
             current.message_id = 0
@@ -271,7 +276,6 @@ class TgCall:
         _lang = await lang.get_lang(chat_id)
         msg = await app.send_message(chat_id=chat_id, text=_lang["play_next"])
 
-        # Download if the cached file path is missing (e.g., was evicted).
         if not media.file_path:
             media.file_path = await yt.download(media.id, video=media.video)
             if not media.file_path:
@@ -288,11 +292,7 @@ class TgCall:
     # ------------------------------------------------------------------ #
 
     async def ping(self) -> float:
-        """
-        Return the mean ping across all active PyTgCalls clients.
-
-        Falls back to 0.0 if no clients are registered yet.
-        """
+        """Return the mean ping across all active PyTgCalls clients."""
         if not self.clients:
             return 0.0
         pings = [client.ping for client in self.clients]
@@ -316,28 +316,20 @@ class TgCall:
         """
         Register event handlers on a single PyTgCalls client instance.
 
-        pytgcalls v2.x type changes applied here:
-        ──────────────────────────────────────────
-        OLD (broken)               NEW (v2.x)
-        ─────────────────────────────────────────
-        types.MuteStream       →   types.MutedStream
-        types.UnMuteStream     →   types.UnMutedStream
-        types.StreamAudioEnded →   types.StreamEnded  (with .stream_type check)
-        types.StreamVideoEnded →   types.StreamEnded  (with .stream_type check)
+        py-tgcalls v2.2.11 available update types (from dir(pytgcalls.types)):
+            StreamEnded               — stream finished (audio or video)
+            ChatUpdate                — call state changes (kicked, left, closed)
+            UpdatedGroupCallParticipant — participant changes incl. mute/unmute
 
-        Handles:
-        • StreamEnded  (AUDIO or VIDEO) → advance the queue.
-        • ChatUpdate   (kicked / left / VC closed) → clean up state.
-        • MutedStream  (server-side mute) → log for awareness.
-        • UnMutedStream (server-side unmute) → log for awareness.
+        Types that do NOT exist in v2.2.11 and must NOT be used:
+            MuteStream, UnMuteStream, MutedStream, UnMutedStream
+            (all removed; mute state is now on UpdatedGroupCallParticipant.muted)
         """
 
         @client.on_update()
         async def update_handler(_, update: types.Update) -> None:
 
             # ── Stream finished ─────────────────────────────────────────
-            # pytgcalls v2.x: StreamAudioEnded + StreamVideoEnded were
-            # merged into a single StreamEnded type with a stream_type field.
             if isinstance(update, types.StreamEnded):
                 if update.stream_type in (
                     types.StreamEnded.Type.AUDIO,
@@ -349,7 +341,6 @@ class TgCall:
                     )
 
             # ── Chat / call state changes ───────────────────────────────
-            # ChatUpdate.Status values are unchanged in v2.x.
             elif isinstance(update, types.ChatUpdate):
                 terminal_statuses = {
                     types.ChatUpdate.Status.KICKED,
@@ -362,20 +353,16 @@ class TgCall:
                         name=f"stop:{update.chat_id}",
                     )
 
-            # ── Server-side mute ────────────────────────────────────────
-            # FIX: types.MuteStream → types.MutedStream  (v2.x rename)
-            elif isinstance(update, types.MutedStream):
+            # ── Participant mute/unmute (replaces old MuteStream type) ──
+            # In v2.2.11 mute events arrive as UpdatedGroupCallParticipant.
+            # We only log here; add your own mute-handling logic if needed.
+            elif isinstance(update, types.UpdatedGroupCallParticipant):
+                participant = update.participant
                 logger.debug(
-                    "MutedStream update for chat %s",
+                    "Participant update in chat %s: user_id=%s muted=%s",
                     update.chat_id,
-                )
-
-            # ── Server-side unmute ──────────────────────────────────────
-            # FIX: types.UnMuteStream → types.UnMutedStream  (v2.x rename)
-            elif isinstance(update, types.UnMutedStream):
-                logger.debug(
-                    "UnMutedStream update for chat %s",
-                    update.chat_id,
+                    getattr(participant, "user_id", "?"),
+                    getattr(participant, "muted", "?"),
                 )
 
     # ------------------------------------------------------------------ #
@@ -386,8 +373,8 @@ class TgCall:
         """
         Start all PyTgCalls userbot clients.
 
-        Suppresses the library's startup notice (it's redundant in production)
-        and registers event decorators on each client before returning.
+        Suppresses the library's startup notice and registers event
+        decorators on each client before returning.
         """
         PyTgCallsSession.notice_displayed = True
 
@@ -401,9 +388,7 @@ class TgCall:
                 ub.me.id if ub.me else "?",
             )
 
-        logger.info(
-            "TgCall pool ready: %d client(s) active.", len(self.clients)
-        )
+        logger.info("TgCall pool ready: %d client(s) active.", len(self.clients))
 
 
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -432,7 +417,7 @@ async def _send_now_playing(
     Try to update the now-playing card in-place (edit the existing message).
 
     Falls back to sending a brand-new photo/text message when the edit is
-    forbidden or the message no longer exists.  Returns the *final* message
+    forbidden or the message no longer exists. Returns the final message
     object so the caller can store its ID, or None on total failure.
     """
     # ── Attempt 1: edit in-place ────────────────────────────────────────
@@ -446,7 +431,7 @@ async def _send_now_playing(
             await message.edit_text(text, reply_markup=keyboard)
         return message
     except (ChatSendMediaForbidden, ChatSendPhotosForbidden, MessageIdInvalid, MessageNotModified):
-        pass  # Fall through to the send-new path.
+        pass
     except Exception as exc:
         logger.debug("edit_media/edit_text failed: %s", exc)
 
