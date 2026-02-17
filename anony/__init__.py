@@ -74,3 +74,10 @@ async def stop() -> None:
     await db.close()
 
     logger.info("Stopped.\n")
+    import asyncio
+
+async def start_userbot():
+    await userbot.boot()
+
+tasks.append(asyncio.create_task(start_userbot()))
+
