@@ -4,7 +4,6 @@ from datetime import datetime
 from pyrogram import filters
 from pyrogram.types import Message
 from anony import app, config
-from html import escape
 
 COLLECTIONS_MAP = {
     "authdb": "adminauth",
@@ -32,10 +31,10 @@ async def backup_database(client, message: Message):
     status = await message.reply_text("Creating database backup...")
 
     try:
-        from pymongo import AsyncMongoClient
+        from motor.motor_asyncio import AsyncIOMotorClient
 
-        mongo_client = AsyncMongoClient(config.MONGO_URL)
-        db = mongo_client.mongodb
+        mongo_client = AsyncIOMotorClient(config.MONGO_URL)
+        db = mongo_client.Anon  # ✅ correct db name from your core/mongo.py
 
         backup_data = {
             "timestamp": datetime.now().isoformat(),
@@ -48,11 +47,6 @@ async def backup_database(client, message: Message):
             async for doc in db[collection_name].find():
                 backup_data["collections"][key].append(doc)
 
-        await status.edit_text(
-            f"Backup created! Uploading...\n"
-            f"Collections: {len(COLLECTIONS_MAP)}"
-        )
-
         filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = f"/tmp/{filename}"
 
@@ -60,18 +54,23 @@ async def backup_database(client, message: Message):
             json.dump(backup_data, f, indent=2, default=str)
 
         file_size = os.path.getsize(filepath) / 1024
-
         total_docs = sum(len(v) for v in backup_data["collections"].values())
+
+        await status.edit_text(
+            f"Backup created! Uploading...\n"
+            f"Collections: {len(COLLECTIONS_MAP)} | Docs: {total_docs}"
+        )
 
         await message.reply_document(
             document=filepath,
             caption=(
                 f"**Database Backup**\n\n"
                 f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"**Database:** `Anon`\n"
                 f"**Collections:** {len(COLLECTIONS_MAP)}\n"
                 f"**Total Documents:** {total_docs}\n"
                 f"**Size:** {file_size:.2f} KB\n\n"
-                f"**Collections Backed Up:**\n"
+                f"**Collections:**\n"
                 + "\n".join(
                     f"• `{k}` → `{v}` ({len(backup_data['collections'][k])} docs)"
                     for k, v in COLLECTIONS_MAP.items()
@@ -82,30 +81,29 @@ async def backup_database(client, message: Message):
         if os.path.exists(filepath):
             os.remove(filepath)
         await status.delete()
-        await mongo_client.close()
+        mongo_client.close()
 
     except Exception as e:
-        await status.edit_text(f"❌ Backup failed: {str(e)}")
+        await status.edit_text(f"❌ Backup failed: `{str(e)}`")
 
 
 @app.on_message(filters.command("restore") & filters.user(config.OWNER_ID))
 async def restore_database(client, message: Message):
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply_text(
-            "Please reply to a backup file with /restore command."
+            "Please reply to a backup `.json` file with /restore"
         )
 
     if not message.reply_to_message.document.file_name.endswith(".json"):
-        return await message.reply_text("❌ Invalid backup file. Must be a .json file.")
+        return await message.reply_text("❌ Invalid backup file. Must be a `.json` file.")
 
     status = await message.reply_text("⬇️ Downloading backup file...")
     filepath = None
 
     try:
-        from pymongo import AsyncMongoClient
+        from motor.motor_asyncio import AsyncIOMotorClient
 
         filepath = await message.reply_to_message.download()
-
         await status.edit_text("📂 Loading backup data...")
 
         with open(filepath, "r") as f:
@@ -116,8 +114,8 @@ async def restore_database(client, message: Message):
 
         await status.edit_text("♻️ Restoring database...")
 
-        mongo_client = AsyncMongoClient(config.MONGO_URL)
-        db = mongo_client.mongodb
+        mongo_client = AsyncIOMotorClient(config.MONGO_URL)
+        db = mongo_client.Anon  # ✅ correct db name
 
         restored_count = 0
         restored_collections = []
@@ -136,24 +134,25 @@ async def restore_database(client, message: Message):
             restored_count += len(documents)
             restored_collections.append(f"• `{key}` → {len(documents)} docs")
 
-        await mongo_client.close()
+        mongo_client.close()
 
         skipped_text = (
-            f"\n**Skipped (empty):** {', '.join(skipped_collections)}"
+            f"\n**Skipped (empty):** {', '.join(f'`{s}`' for s in skipped_collections)}"
             if skipped_collections else ""
         )
 
         await status.edit_text(
             f"✅ **Database Restored Successfully**\n\n"
-            f"**Backup Date:** {backup_data.get('timestamp', 'Unknown')}\n"
+            f"**Backup Date:** `{backup_data.get('timestamp', 'Unknown')}`\n"
+            f"**Database:** `Anon`\n"
             f"**Documents Restored:** {restored_count}\n"
-            f"**Collections Restored:** {len(restored_collections)}\n"
+            f"**Collections Restored:** {len(restored_collections)}"
             f"{skipped_text}\n\n"
             f"**Details:**\n" + "\n".join(restored_collections)
         )
 
     except Exception as e:
-        await status.edit_text(f"❌ Restore failed: {str(e)}")
+        await status.edit_text(f"❌ Restore failed: `{str(e)}`")
 
     finally:
         if filepath and os.path.exists(filepath):
